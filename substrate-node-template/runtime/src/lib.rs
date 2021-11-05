@@ -243,18 +243,50 @@ parameter_types! {
 }
 
 impl pallet_balances::Config for Runtime {
-	type MaxLocks = MaxLocks;
-	type MaxReserves = ();
-	type ReserveIdentifier = [u8; 8];
-	/// The type for recording an account's balance.
-	type Balance = Balance;
-	/// The ubiquitous event type.
-	type Event = Event;
-	type DustRemoval = ();
-	type ExistentialDeposit = ExistentialDeposit;
-	type AccountStore = System;
-	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
+  // The previously defined parameter_type is used as a configuration parameter.
+  type MaxLocks = MaxLocks;
+
+  // The "Balance" that appears after the equal sign is an alias for the u128 type.
+  type Balance = Balance;
+
+  type MaxReserves = ();
+  type ReserveIdentifier = [u8;8];
+
+  // The empty value, (), is used to specify a no-op callback function.
+  type DustRemoval = ();
+
+  // The previously defined parameter_type is used as a configuration parameter.
+  type ExistentialDeposit = ExistentialDeposit;
+
+  // The FRAME runtime system is used to track the accounts that hold balances.
+  type AccountStore = System;
+
+  // Weight information is supplied to the Balances pallet by the node template runtime.
+  // type WeightInfo = (); // old way
+  type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
+
+  // The ubiquitous event type.
+  type Event = Event;
 }
+
+parameter_types! {
+	pub const NickReservationFee: u128 = 100;
+	pub const MinNickLength: u32 = 8;
+	// Maximum bounds on storage are important to secure your chain.
+	pub const MaxNickLength: u32 = 32;
+}
+
+impl pallet_nicks::Config for Runtime {
+	type Currency = Balances;
+	type ReservationFee = NickReservationFee;
+	type Slashed = ();
+	//  From ttps://docs.substrate.io/rustdocs/latest/frame_system/enum.RawOrigin.html#variant.Root
+	type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+	type MinLength = MinNickLength;
+	type MaxLength = MaxNickLength;
+	type Event = Event;
+}
+
 
 parameter_types! {
 	pub const TransactionByteFee: Balance = 1;
@@ -294,6 +326,8 @@ construct_runtime!(
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
 		// Include the custom logic from the pallet-template in the runtime.
 		TemplateModule: pallet_template::{Pallet, Call, Storage, Event<T>},
+		// added Nicks
+		Nicks: pallet_nicks::{Pallet, Call, Storage, Event<T>}
 	}
 );
 
