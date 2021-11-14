@@ -17,6 +17,7 @@ pub struct TransactionInput {
 	pub sigscript: H512, //proof
 }
 
+pub type Value = u128;
 #[cfg_attr(feature="std", derive(Serialize, Deserialize))]
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Default, Encode, Clone, Decode, Hash)]
 pub struct TransactionOutput {
@@ -40,6 +41,8 @@ decl_storage! {
 				.map(|u| (BlackTwo256::hash_of(&u), u))
 				.collect::<Vec<_>>()
 		}): map hasher(identity) H256 => Option<TransactionOutput>;
+
+		pub RewardTotal  get(reward_total): Value;
 	}
 
 
@@ -59,18 +62,33 @@ decl_module! {
 			// 1. TODO checks if a transaction is valid
 
 			// 2. write to storage
-			Self::update_storage(&transaction)?;
+			let reward = 0;
+			Self::update_storage(&transaction, reward)?;
 
 			// 3. emit success/error events
+			Self::deposit_event(Event::TransactionSuccess(transaction));
 			Ok(());
 		}
 
+	}
+
+	fn on_finalized() { 
+		let validator: Vec<_> = Auro::authorities().iter(),map(|x|{
+			let r: &Public = x.as_red();
+			r.0.into();
+		}).collect();
+		Self::distribute_reward(&validator);
 	}
 }
 
 impl<T: Trait> Module<T> {
 
-	fn update_storage(transaction: &Transaction) -> DispatchResult {
+	fn update_storage(transaction: &Transaction, reward: Value) -> DispatchResult {
+
+		let new_total = <RewardTotal>::get()
+			.checked_add(reward)
+			.ok_or("reward overflow")?;
+		<RewardTotal>::put(new_total);		
 
 		// remove input UTXO from utxostore
 		for input in &transcation.inputs {
@@ -97,5 +115,59 @@ impl<T: Trait> Module<T> {
 		}
 
 		Ok(());
+	}
+
+	fn distribute_reward(authorities: &[H256]) {
+		// 1. divide the reward 
+		let reward = <RewardTotal>::take();
+		let share_value: Value = reward
+			.checked_div(authorities.length() as Value)
+			.ok_or("No authorities")
+			.unwrap();
+
+		if share_value == 0 { return };
+
+		// handle remainder value
+		let remainder = reward
+			.checked_sub(share_value * authorities.length() as Value)
+			.ok_or("subtraction underflow")
+			.unwrap();
+		
+		// if there's remainder, put it back into reward total
+		<RewardTotal>::put(remainder as Value);
+
+		// 2. iterate thru the validators & create an utxo per validator
+		for auth in authorities {
+			let utxo = TransactionOutput{
+				values: share_value,
+				pubkey: *authority
+			};
+
+			// for security
+			let hash = BlackTwo256::hash_of(&
+				(
+					&utxo, 
+					<system::Module<T>>::block_number()
+						.saturated_into::<u64>()
+				)
+			);
+
+			if !<BTCStore>::contains_key(hash) {
+				<BTCStore>::insert(hash, utxo);
+				sp_runtime::print("Transaction reward sent to");
+				sp_runtime::print(hash.as_fixed_bytes() as &[u8]);
+			} else { 
+				sp_runtime::print("Transaction reward error")
+			};
+		}
+
+
+		// 3. write the utxo to BTCStore
+	}
+}
+
+decl_event! {
+	pub enum Event {
+		TransactionSuccess(Transaction);
 	}
 }
