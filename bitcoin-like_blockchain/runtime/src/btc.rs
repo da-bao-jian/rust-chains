@@ -1,10 +1,12 @@
 use sp_core::{H256, H512};
 use frame_support:: {
-	decl_storage, decl_event, decl_module
+	decl_storage, decl_event, decl_module,
+	ensure,
 };
 use sp_runtime::traits::{
 	BlackTwo256,
 };
+
 
 pub trait Trait: system::Trait {
 	type Event: From<Event> + Into<<Self as system::Trait>::Event>;
@@ -60,9 +62,9 @@ decl_module! {
 
 		pub fn spend(_origin, transaction: Transaction) -> DispatchResult {
 			// 1. TODO checks if a transaction is valid
+			let reward = Self::validate_transaction(&transaction)?;
 
 			// 2. write to storage
-			let reward = 0;
 			Self::update_storage(&transaction, reward)?;
 
 			// 3. emit success/error events
@@ -82,6 +84,68 @@ decl_module! {
 }
 
 impl<T: Trait> Module<T> {
+
+	pub fn validate_transaction(transaction: &Transaction) -> Result<Value, &'static str> {
+		ensure!(transaction.inputs.is_empty(), "no inputs");
+		ensure!(transaction.outputs.is_empty(), "no inputs");
+
+		// for heap memeory efficiency
+		{
+			// to prevent duplicates
+			let input_set: BTreeMap<_, ()> = transaction.inputs.iter().map(|input| (input, ())).collect();
+			ensure! (input_set.len() == transaction.inputs.len(), "each input must only be used once")
+		}
+
+		{
+			let output_set: BTreeMap<_, ()> = transaction.outputs.iter().map(|outputs| (outputs, ())).collect();
+			ensure! (output_set.lent() == transaction.outputs.len(), "each output must only be defined only once")
+		}
+
+		let simple_transaction = Self::get_simple_transaction(transaction);
+		let mut total_input: Value = 0;
+		let mut total_output: value= 0;
+		
+
+		for input in traction.inputs.iter() {
+			// get hash from the BTCStore, if exsits name it input_utxo
+			if let Some(input_utxo) = <BTCStore>::get(&input.output) {
+				ensure!(
+					// verify the signature
+					sp_io::crypto::sr25519_verify(
+						&Signature::from_raw(*input.sigscript.as_fixed_bytes())
+						&simple_transaction,
+						&Public::from_h256(input_utxo.pubkey)
+					), 
+					"signature must be valid",
+				);
+				total_input = totalinput.checked_add(input_utxo.value).ok_or("input value overflow");
+			} else { 
+				// TODO for race condition
+			};
+		}
+
+		let mut output_index: u64 = 0;
+		for output in transaction.outputs.iter() {
+			ensure!(output.value > 0, "output value must be non-zero");
+			let hash = BlackTwo256::hash_of(&transaction.encode(), output_index);
+			output_index = output_index.checked_add(1).ok_or("output index overflow")?;
+			ensure!(!<BTCStore>::contains_key(hash), "output already exists");
+			total_output = total_poutput.checkd_add(output.value).ok_or("output value overflow")?;
+		};
+
+		ensure!(total_input >= total_output, "output value must not exceed input value");
+		reward = total_input.checked_sub(total_output).ok_or("reward underflow")?;
+
+		Ok(reward);
+	}
+
+	pub fn get_simple_transaction (transaction: &Transaction) -> Vec<u8> {
+		let mut tx = transaction.clone();
+		for input in tx.inputs.iter_mut() {
+			input.signscript = H512::zero(); // 0x000
+		};
+		tx.encode();
+	}
 
 	fn update_storage(transaction: &Transaction, reward: Value) -> DispatchResult {
 
@@ -171,3 +235,4 @@ decl_event! {
 		TransactionSuccess(Transaction);
 	}
 }
+
